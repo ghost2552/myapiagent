@@ -1,79 +1,89 @@
-const fs = require('fs');
-const path = require('path');
-const { google } = require('googleapis');
+const fs = require("fs");
+const path = require("path");
+const { google } = require("googleapis");
 
-// Path to token file
-const TOKEN_PATH = path.join(__dirname, 'token.json');
+const SCOPES = [
+  "https://www.googleapis.com/auth/calendar",
+  "https://www.googleapis.com/auth/calendar.events",
+];
+const TOKEN_PATH = path.join(__dirname, "token.json");
 
-// Your OAuth2 credentials
-const CLIENT_ID = "703184561095-rhjck2ccik10fo0vns0he6a9c8c3a526.apps.googleusercontent.com";
-const CLIENT_SECRET = "YOUR_CLIENT_SECRET";  // Replace with your actual client secret
-const REDIRECT_URI = "https://myapiagent.onrender.com/oauth2callback";
-
-// Create OAuth2 client
-const oAuth2Client = new google.auth.OAuth2(
-  CLIENT_ID,
-  CLIENT_SECRET,
-  REDIRECT_URI
+// 👉 Use your original filename, do NOT rename the file
+const CREDENTIALS_PATH = path.join(
+  __dirname,
+  "client_secret_703184561095-rhjck2ccik10fo0vns0he6a9c8c3a526.apps.googleusercontent.com.json"
 );
 
-// Load token from file
-function loadToken() {
+function loadCredentials() {
+  const content = fs.readFileSync(CREDENTIALS_PATH, "utf8");
+  return JSON.parse(content).installed || JSON.parse(content).web;
+}
+
+async function authorize() {
+  const credentials = loadCredentials();
+  const { client_secret, client_id, redirect_uris } = credentials;
+
+  const oAuth2Client = new google.auth.OAuth2(
+    client_id,
+    client_secret,
+    redirect_uris[0]
+  );
+
   if (fs.existsSync(TOKEN_PATH)) {
-    const token = JSON.parse(fs.readFileSync(TOKEN_PATH));
+    const token = JSON.parse(fs.readFileSync(TOKEN_PATH, "utf8"));
     oAuth2Client.setCredentials(token);
-    return token;
-  }
-  return null;
-}
+  } else {
+    const authUrl = oAuth2Client.generateAuthUrl({
+      access_type: "offline",
+      scope: SCOPES,
+    });
+    console.log("Authorize this app by visiting this URL:", authUrl);
 
-// Save token to file
-function saveToken(token) {
-  fs.writeFileSync(TOKEN_PATH, JSON.stringify(token, null, 2));
-  console.log("✅ Token refreshed and saved!");
-}
-
-// Refresh token if expired
-async function refreshAccessTokenIfNeeded() {
-  const token = loadToken();
-
-  if (!token || !token.refresh_token) {
-    throw new Error("❌ No refresh token found. Re-authorize the app.");
-  }
-
-  try {
-    const newTokens = await oAuth2Client.refreshAccessToken();
-    const updatedToken = {
-      ...token,
-      ...newTokens.credentials,
-    };
-    saveToken(updatedToken);
-    oAuth2Client.setCredentials(updatedToken);
-    return oAuth2Client;
-  } catch (err) {
-    console.error("❌ Error refreshing access token:", err);
-    throw err;
-  }
-}
-
-// Create a Google Calendar event
-async function createCalendarEvent(event) {
-  try {
-    await refreshAccessTokenIfNeeded();
-
-    const calendar = google.calendar({ version: 'v3', auth: oAuth2Client });
-
-    const res = await calendar.events.insert({
-      calendarId: 'primary',
-      resource: event,
+    const readline = require("readline").createInterface({
+      input: process.stdin,
+      output: process.stdout,
     });
 
-    console.log("✅ Event created:", res.data.htmlLink);
-    return res.data;
+    readline.question("Enter the code from that page here: ", async (code) => {
+      readline.close();
+      const { tokens } = await oAuth2Client.getToken(code);
+      oAuth2Client.setCredentials(tokens);
+
+      fs.writeFileSync(TOKEN_PATH, JSON.stringify(tokens, null, 2));
+      console.log("Token stored to", TOKEN_PATH);
+    });
+  }
+
+  return oAuth2Client;
+}
+
+async function createEvent(auth) {
+  const calendar = google.calendar({ version: "v3", auth });
+
+  const event = {
+    summary: "Authorization Test Event",
+    location: "Online",
+    description: "Testing Google Calendar API authorization",
+    start: {
+      dateTime: "2025-09-21T15:00:00+03:00",
+      timeZone: "Asia/Jerusalem",
+    },
+    end: {
+      dateTime: "2025-09-21T16:00:00+03:00",
+      timeZone: "Asia/Jerusalem",
+    },
+    attendees: [{ email: "test@example.com" }],
+  };
+
+  try {
+    const response = await calendar.events.insert({
+      calendarId: "primary",
+      resource: event,
+    });
+    console.log("✅ Event created:", response.data.htmlLink);
   } catch (error) {
     console.error("❌ Error creating event:", error);
-    throw error;
   }
 }
 
-module.exports = { createCalendarEvent };
+authorize().then(createEvent).catch(console.error);
