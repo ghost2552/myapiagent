@@ -14,23 +14,19 @@ function getOAuthClient() {
   let credentials;
 
   if (process.env.GOOGLE_CREDENTIALS) {
-    console.log("DEBUG: GOOGLE_CREDENTIALS found ✅");
+    console.log("✅ Loaded GOOGLE_CREDENTIALS from environment");
     credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS);
   } else {
-    console.log("DEBUG: GOOGLE_CREDENTIALS missing ❌, trying secret file...");
-    try {
-      const raw = fs.readFileSync("/etc/secrets/client_secret.json", "utf-8");
-      credentials = JSON.parse(raw);
-      console.log("DEBUG: Loaded credentials from secret file ✅");
-    } catch (e) {
-      console.error("ERROR: Could not load credentials from env or file:", e.message);
-      throw new Error("No Google credentials available.");
-    }
+    throw new Error("❌ GOOGLE_CREDENTIALS not set in environment variables");
   }
 
   const { client_id, client_secret, redirect_uris } = credentials.web;
 
-  return new google.auth.OAuth2(client_id, client_secret, redirect_uris[0]);
+  return new google.auth.OAuth2(
+    client_id,
+    client_secret,
+    redirect_uris[0]
+  );
 }
 
 // Store tokens in memory (can move to DB later if needed)
