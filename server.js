@@ -1,6 +1,7 @@
 import express from "express";
 import { google } from "googleapis";
 import dotenv from "dotenv";
+import fs from "fs";
 
 dotenv.config();
 
@@ -11,31 +12,42 @@ const SCOPES = ["https://www.googleapis.com/auth/calendar"];
 
 function getOAuthClient() {
   let credentials;
+
   if (process.env.GOOGLE_CREDENTIALS) {
+    console.log("DEBUG: GOOGLE_CREDENTIALS found ✅");
     credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS);
   } else {
-    throw new Error("GOOGLE_CREDENTIALS not set in environment variables.");
+    console.log("DEBUG: GOOGLE_CREDENTIALS missing ❌, trying secret file...");
+    try {
+      const raw = fs.readFileSync("/etc/secrets/client_secret.json", "utf-8");
+      credentials = JSON.parse(raw);
+      console.log("DEBUG: Loaded credentials from secret file ✅");
+    } catch (e) {
+      console.error("ERROR: Could not load credentials from env or file:", e.message);
+      throw new Error("No Google credentials available.");
+    }
   }
 
   const { client_id, client_secret, redirect_uris } = credentials.web;
 
-  return new google.auth.OAuth2(
-    client_id,
-    client_secret,
-    redirect_uris[0]
-  );
+  return new google.auth.OAuth2(client_id, client_secret, redirect_uris[0]);
 }
 
-// Store tokens in memory (later we can move to Redis/DB if needed)
+// Store tokens in memory (can move to DB later if needed)
 let oauthTokens = null;
 
 app.get("/authorize", (req, res) => {
-  const oAuth2Client = getOAuthClient();
-  const authUrl = oAuth2Client.generateAuthUrl({
-    access_type: "offline",
-    scope: SCOPES,
-  });
-  res.redirect(authUrl);
+  try {
+    const oAuth2Client = getOAuthClient();
+    const authUrl = oAuth2Client.generateAuthUrl({
+      access_type: "offline",
+      scope: SCOPES,
+    });
+    res.redirect(authUrl);
+  } catch (err) {
+    console.error("Authorize error:", err);
+    res.status(500).send("Error initializing authorization.");
+  }
 });
 
 app.get("/oauth2callback", async (req, res) => {
