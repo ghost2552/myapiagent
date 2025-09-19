@@ -1,91 +1,89 @@
 const express = require("express");
-const fs = require("fs");
-const path = require("path");
 const { google } = require("googleapis");
+const bodyParser = require("body-parser");
 
 const app = express();
-app.use(express.json());
+app.use(bodyParser.json());
 
-const PORT = process.env.PORT || 10000;
-
-// Paths for credentials and tokens
-const CREDENTIALS_PATH = path.join(__dirname, "client_secret_703184561095-rhjck2ccik10fo0vns0he6a9c8c3a526.apps.googleusercontent.com.json");
-const TOKEN_PATH = path.join(__dirname, "token.json");
-
-// Load client secrets
-function loadCredentials() {
-  return JSON.parse(fs.readFileSync(CREDENTIALS_PATH, "utf8"));
+// Load credentials from environment variable instead of file
+if (!process.env.GOOGLE_CREDENTIALS) {
+  console.error("❌ GOOGLE_CREDENTIALS env variable not set.");
+  process.exit(1);
 }
+const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS);
 
-// OAuth2 client setup
-function createOAuthClient() {
-  const credentials = loadCredentials().installed || loadCredentials().web;
-  return new google.auth.OAuth2(
-    credentials.client_id,
-    credentials.client_secret,
-    credentials.redirect_uris[0]
-  );
-}
+const { client_secret, client_id, redirect_uris } = credentials.installed || credentials.web;
 
-// ================= ROUTES ================= //
+const oAuth2Client = new google.auth.OAuth2(
+  client_id,
+  client_secret,
+  redirect_uris[0]
+);
 
-// Route to start OAuth2 flow
+// In-memory token storage (you can persist to DB or file if needed)
+let token = null;
+
+// Step 1: Start OAuth flow
 app.get("/authorize", (req, res) => {
-  const oAuth2Client = createOAuthClient();
   const authUrl = oAuth2Client.generateAuthUrl({
     access_type: "offline",
-    scope: ["https://www.googleapis.com/auth/calendar.events", "https://www.googleapis.com/auth/calendar.readonly"],
-    prompt: "consent"
+    scope: ["https://www.googleapis.com/auth/calendar.events"],
   });
   res.redirect(authUrl);
 });
 
-// OAuth2 callback
+// Step 2: Callback from Google OAuth
 app.get("/oauth2callback", async (req, res) => {
   const code = req.query.code;
-  if (!code) return res.status(400).send("No code provided.");
+  if (!code) {
+    return res.status(400).send("No code found in callback.");
+  }
 
-  const oAuth2Client = createOAuthClient();
   try {
     const { tokens } = await oAuth2Client.getToken(code);
-    fs.writeFileSync(TOKEN_PATH, JSON.stringify(tokens));
-    res.send("✅ Authorization successful! You can now close this tab.");
+    oAuth2Client.setCredentials(tokens);
+    token = tokens;
+    res.send("✅ Authorization successful! You can now create events.");
   } catch (err) {
     console.error("Error retrieving access token", err);
-    res.status(500).send("Error during authentication");
+    res.status(500).send("Failed to retrieve access token.");
   }
 });
 
-// Route to create calendar event
+// Step 3: Create event endpoint
 app.post("/events", async (req, res) => {
+  if (!token) {
+    return res.status(401).send("No token found. Please authorize first at /authorize.");
+  }
+
+  oAuth2Client.setCredentials(token);
+
+  const calendar = google.calendar({ version: "v3", auth: oAuth2Client });
+
+  const event = {
+    summary: req.body.summary || "Test Event",
+    location: req.body.location || "Online",
+    description: req.body.description || "Created via API",
+    start: { dateTime: req.body.start_time },
+    end: { dateTime: req.body.end_time },
+    attendees: req.body.attendees ? req.body.attendees.map(email => ({ email })) : [],
+  };
+
   try {
-    const tokens = JSON.parse(fs.readFileSync(TOKEN_PATH, "utf8"));
-    const oAuth2Client = createOAuthClient();
-    oAuth2Client.setCredentials(tokens);
-
-    const calendar = google.calendar({ version: "v3", auth: oAuth2Client });
-    const event = {
-      summary: req.body.summary,
-      location: req.body.location,
-      description: req.body.description,
-      start: { dateTime: req.body.start_time },
-      end: { dateTime: req.body.end_time },
-      attendees: req.body.attendees.map(email => ({ email }))
-    };
-
     const response = await calendar.events.insert({
+      auth: oAuth2Client,
       calendarId: "primary",
       resource: event,
     });
-
-    res.json(response.data);
+    res.status(200).json(response.data);
   } catch (err) {
     console.error("Error creating event:", err);
-    res.status(500).send("Error creating event");
+    res.status(500).send("Failed to create event.");
   }
 });
 
 // Start server
+const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
