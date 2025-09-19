@@ -11,24 +11,26 @@ const SCOPES = ["https://www.googleapis.com/auth/calendar"];
 
 function getOAuthClient() {
   let credentials;
-
   if (process.env.GOOGLE_CREDENTIALS) {
-    console.log("✅ Loaded GOOGLE_CREDENTIALS from environment");
     credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS);
   } else {
-    throw new Error("❌ GOOGLE_CREDENTIALS not set in environment variables");
+    throw new Error("GOOGLE_CREDENTIALS not set in environment variables.");
   }
 
   const { client_id, client_secret, redirect_uris } = credentials.web;
 
-  return new google.auth.OAuth2(client_id, client_secret, redirect_uris[0]);
+  return new google.auth.OAuth2(
+    client_id,
+    client_secret,
+    redirect_uris[0]
+  );
 }
 
+// Store tokens in memory (later we can move to Redis/DB if needed)
 let oauthTokens = null;
 
-// ➡️ New root route
 app.get("/", (req, res) => {
-  res.send("🚀 API is live! Use /authorize to start Google Calendar auth.");
+  res.send("✅ Google Calendar API is running. Visit /authorize to connect.");
 });
 
 app.get("/authorize", (req, res) => {
@@ -54,6 +56,7 @@ app.get("/oauth2callback", async (req, res) => {
   }
 });
 
+// Create Calendar Event
 app.post("/events", async (req, res) => {
   try {
     if (!oauthTokens) {
@@ -79,10 +82,24 @@ app.post("/events", async (req, res) => {
       resource: event,
     });
 
-    res.status(200).json(result.data);
+    // ✅ Clean structured JSON response for Vapi
+    res.status(200).json({
+      success: true,
+      message: "Event created successfully",
+      eventId: result.data.id,
+      summary: result.data.summary,
+      htmlLink: result.data.htmlLink,
+      start: result.data.start,
+      end: result.data.end,
+    });
+
   } catch (err) {
     console.error("Error creating event:", err);
-    res.status(500).send("Error creating event");
+    res.status(500).json({
+      success: false,
+      message: "Error creating event",
+      error: err.message,
+    });
   }
 });
 
