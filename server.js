@@ -1,24 +1,31 @@
-// server.js
 const express = require("express");
-const dotenv = require("dotenv");
-
-dotenv.config();
+const bodyParser = require("body-parser");
+const { loadClient, createEvent } = require("./calendar");
 
 const app = express();
-const port = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3000;
 
-app.use(express.json());
+app.use(bodyParser.json());
 
-// Import calendar routes
-const calendar = require("./calendar.js");
-app.use("/webhook/v1", calendar);
-
-// Root route to confirm service is running
+// ✅ Root test
 app.get("/", (req, res) => {
-  res.send("✅ Calendar API is live on Render!");
+  res.send("Google Calendar API Server is running ✅");
 });
 
-// Start server
-app.listen(port, () => {
-  console.log(`🚀 Server is running on port ${port}`);
+// ✅ Create event endpoint
+app.post("/events", async (req, res) => {
+  try {
+    const auth = loadClient();
+    const eventDetails = req.body;
+
+    const event = await createEvent(auth, eventDetails);
+    res.json({ ok: true, event });
+  } catch (err) {
+    console.error("Error creating event:", err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on http://localhost:${PORT}`);
 });
