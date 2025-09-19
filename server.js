@@ -1,38 +1,47 @@
-require("dotenv").config();
 const express = require("express");
 const bodyParser = require("body-parser");
-const calendar = require("./calendar");
+const { createCalendarEvent } = require("./calendar");
 
 const app = express();
-const PORT = process.env.PORT || 10000;
+const PORT = process.env.PORT || 10000; // Render will override with its own port
 
-// Middleware
 app.use(bodyParser.json());
 
-// Root endpoint
+// Root route
 app.get("/", (req, res) => {
-  res.send("✅ API is running. Use POST /webhook/v1/events to create events.");
+  res.send("✅ Google Calendar API is running!");
 });
 
-// Create event endpoint
-app.post("/webhook/v1/events", (req, res) => {
-  const event = req.body;
+// Event creation route
+app.post("/events", async (req, res) => {
+  try {
+    const { summary, location, description, start_time, end_time, attendees } = req.body;
 
-  if (!event.summary || !event.start_time || !event.end_time) {
-    return res.status(400).json({ error: "Missing required event fields" });
-  }
-
-  console.log("📩 Incoming event request:", event);
-
-  calendar.createEvent(event, (err, response) => {
-    if (err) {
-      console.error("❌ Google Calendar API error:", err.errors || err);
-      return res
-        .status(500)
-        .json({ error: "Google Calendar API error", details: err.errors || err });
+    if (!summary || !start_time || !end_time) {
+      return res.status(400).json({ error: "Missing required fields" });
     }
-    res.json({ message: "✅ Event created", event: response });
-  });
+
+    const event = {
+      summary,
+      location,
+      description,
+      start: {
+        dateTime: start_time,
+        timeZone: "UTC",
+      },
+      end: {
+        dateTime: end_time,
+        timeZone: "UTC",
+      },
+      attendees: attendees ? attendees.map(email => ({ email })) : [],
+    };
+
+    const result = await createCalendarEvent(event);
+    res.status(200).json({ message: "✅ Event created!", link: result.htmlLink });
+  } catch (error) {
+    console.error("❌ Error in /events route:", error.message || error);
+    res.status(500).json({ error: "Failed to create event", details: error.message });
+  }
 });
 
 // Start server
