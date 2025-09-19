@@ -1,7 +1,6 @@
 import express from "express";
 import { google } from "googleapis";
 import dotenv from "dotenv";
-import fs from "fs";
 
 dotenv.config();
 
@@ -10,6 +9,7 @@ app.use(express.json());
 
 const SCOPES = ["https://www.googleapis.com/auth/calendar"];
 
+// ----------- FIXED CREDENTIAL LOADING -----------
 function getOAuthClient() {
   let credentials;
 
@@ -22,28 +22,19 @@ function getOAuthClient() {
 
   const { client_id, client_secret, redirect_uris } = credentials.web;
 
-  return new google.auth.OAuth2(
-    client_id,
-    client_secret,
-    redirect_uris[0]
-  );
+  return new google.auth.OAuth2(client_id, client_secret, redirect_uris[0]);
 }
 
-// Store tokens in memory (can move to DB later if needed)
+// Store tokens in memory
 let oauthTokens = null;
 
 app.get("/authorize", (req, res) => {
-  try {
-    const oAuth2Client = getOAuthClient();
-    const authUrl = oAuth2Client.generateAuthUrl({
-      access_type: "offline",
-      scope: SCOPES,
-    });
-    res.redirect(authUrl);
-  } catch (err) {
-    console.error("Authorize error:", err);
-    res.status(500).send("Error initializing authorization.");
-  }
+  const oAuth2Client = getOAuthClient();
+  const authUrl = oAuth2Client.generateAuthUrl({
+    access_type: "offline",
+    scope: SCOPES,
+  });
+  res.redirect(authUrl);
 });
 
 app.get("/oauth2callback", async (req, res) => {
