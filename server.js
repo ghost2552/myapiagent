@@ -1,49 +1,41 @@
-// server.js
+require("dotenv").config();
 const express = require("express");
 const bodyParser = require("body-parser");
-const dotenv = require("dotenv");
 const calendar = require("./calendar");
 
-dotenv.config();
-
 const app = express();
+const PORT = process.env.PORT || 10000;
+
+// Middleware
 app.use(bodyParser.json());
 
-// Health check
+// Root endpoint
 app.get("/", (req, res) => {
-  res.send("✅ Server is running on Render!");
+  res.send("✅ API is running. Use POST /webhook/v1/events to create events.");
 });
 
-// ✅ Finalized endpoint
-app.post("/webhook/v1/events", async (req, res) => {
-  try {
-    const { summary, location, description, start_time, end_time, attendees } =
-      req.body;
+// Create event endpoint
+app.post("/webhook/v1/events", (req, res) => {
+  const event = req.body;
 
-    const event = await calendar.createEvent({
-      summary,
-      location,
-      description,
-      start_time,
-      end_time,
-      attendees,
-    });
-
-    res.status(200).json({
-      ok: true,
-      message: `Event '${summary}' created successfully!`,
-      event,
-    });
-  } catch (error) {
-    console.error("❌ Error creating event:", error);
-    res.status(500).json({
-      ok: false,
-      error: error.message,
-    });
+  if (!event.summary || !event.start_time || !event.end_time) {
+    return res.status(400).json({ error: "Missing required event fields" });
   }
+
+  console.log("📩 Incoming event request:", event);
+
+  calendar.createEvent(event, (err, response) => {
+    if (err) {
+      console.error("❌ Google Calendar API error:", err.errors || err);
+      return res
+        .status(500)
+        .json({ error: "Google Calendar API error", details: err.errors || err });
+    }
+    res.json({ message: "✅ Event created", event: response });
+  });
 });
 
-const PORT = process.env.PORT || 3000;
+// Start server
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
