@@ -9,7 +9,6 @@ app.use(express.json());
 
 const SCOPES = ["https://www.googleapis.com/auth/calendar"];
 
-// ----------- FIXED CREDENTIAL LOADING -----------
 function getOAuthClient() {
   let credentials;
 
@@ -25,8 +24,12 @@ function getOAuthClient() {
   return new google.auth.OAuth2(client_id, client_secret, redirect_uris[0]);
 }
 
-// Store tokens in memory
 let oauthTokens = null;
+
+// ➡️ New root route
+app.get("/", (req, res) => {
+  res.send("🚀 API is live! Use /authorize to start Google Calendar auth.");
+});
 
 app.get("/authorize", (req, res) => {
   const oAuth2Client = getOAuthClient();
