@@ -2,22 +2,19 @@ const fs = require("fs");
 const path = require("path");
 const { google } = require("googleapis");
 
-// Path to your client_secret.json
 const CREDENTIALS_PATH = path.join(__dirname, "client_secret.json");
 const TOKEN_PATH = path.join(__dirname, "token.json");
 
-// Load client secrets from file
 function loadClient() {
   const content = fs.readFileSync(CREDENTIALS_PATH);
   const credentials = JSON.parse(content);
 
-  // FIX ✅ -> Use "web" instead of "installed"
+  // Use "web" section of client_secret.json
   const { client_secret, client_id, redirect_uris } = credentials.web;
 
   return new google.auth.OAuth2(client_id, client_secret, redirect_uris[0]);
 }
 
-// Authorize client using stored token or request new one
 function authorize(callback) {
   const oAuth2Client = loadClient();
 
@@ -30,7 +27,6 @@ function authorize(callback) {
   }
 }
 
-// Create a Google Calendar event
 function createEvent(auth, event, callback) {
   const calendar = google.calendar({ version: "v3", auth });
 
@@ -52,7 +48,6 @@ function createEvent(auth, event, callback) {
   );
 }
 
-// Main function to schedule an event
 function scheduleEvent(event, callback) {
   authorize((auth) => {
     createEvent(auth, event, callback);
@@ -60,5 +55,5 @@ function scheduleEvent(event, callback) {
 }
 
 module.exports = {
-  scheduleEvent,
+  createEvent: scheduleEvent, // ✅ Export as createEvent (so server.js works)
 };
