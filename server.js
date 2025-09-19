@@ -1,21 +1,49 @@
 // server.js
 const express = require("express");
 const bodyParser = require("body-parser");
-const calendarRoutes = require("./calendar"); // import calendar routes
+const dotenv = require("dotenv");
+const calendar = require("./calendar");
+
+dotenv.config();
 
 const app = express();
-const port = process.env.PORT || 3000;
-
 app.use(bodyParser.json());
 
-// health check
+// Health check
 app.get("/", (req, res) => {
-  res.send("✅ Calendar API is live on Render!");
+  res.send("✅ Server is running on Render!");
 });
 
-// calendar routes (main endpoint)
-app.use("/events", calendarRoutes);
+// ✅ Finalized endpoint
+app.post("/webhook/v1/events", async (req, res) => {
+  try {
+    const { summary, location, description, start_time, end_time, attendees } =
+      req.body;
 
-app.listen(port, () => {
-  console.log(`🚀 Server running on http://localhost:${port}`);
+    const event = await calendar.createEvent({
+      summary,
+      location,
+      description,
+      start_time,
+      end_time,
+      attendees,
+    });
+
+    res.status(200).json({
+      ok: true,
+      message: `Event '${summary}' created successfully!`,
+      event,
+    });
+  } catch (error) {
+    console.error("❌ Error creating event:", error);
+    res.status(500).json({
+      ok: false,
+      error: error.message,
+    });
+  }
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
 });
