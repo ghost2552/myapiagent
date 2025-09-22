@@ -4,8 +4,6 @@ import cors from "cors";
 import { google } from "googleapis";
 
 const app = express();
-const PORT = process.env.PORT || 10000;
-
 app.use(cors());
 app.use(bodyParser.json());
 
@@ -17,27 +15,35 @@ const auth = new google.auth.GoogleAuth({
 
 const calendar = google.calendar({ version: "v3", auth });
 
-// Health check route
+// Root route (avoid "Cannot GET /")
 app.get("/", (req, res) => {
-  res.send("🚀 Google Calendar API is running!");
+  res.send("✅ Google Calendar API server is running.");
 });
 
-// Create calendar event route
+// POST /events -> create calendar event
 app.post("/events", async (req, res) => {
   try {
     const { summary, description, location, start, end, attendees } = req.body;
 
     if (!summary || !start || !end) {
-      return res.status(400).json({ error: "Missing required fields" });
+      return res.status(400).json({
+        error: "Missing required fields: summary, start, and end are required.",
+      });
     }
 
     const event = {
       summary,
       description,
       location,
-      start: { dateTime: start, timeZone: "UTC" },
-      end: { dateTime: end, timeZone: "UTC" },
-      attendees: attendees ? attendees.map((email) => ({ email })) : [],
+      start: {
+        dateTime: start,
+        timeZone: "UTC",
+      },
+      end: {
+        dateTime: end,
+        timeZone: "UTC",
+      },
+      attendees: attendees?.map((email) => ({ email })),
     };
 
     const response = await calendar.events.insert({
@@ -55,6 +61,8 @@ app.post("/events", async (req, res) => {
   }
 });
 
+// Start server
+const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
