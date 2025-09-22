@@ -1,6 +1,6 @@
-import express from 'express';
-import bodyParser from 'body-parser';
-import { google } from 'googleapis';
+const express = require('express');
+const bodyParser = require('body-parser');
+const { google } = require('googleapis');
 
 const app = express();
 const port = process.env.PORT || 10000;
