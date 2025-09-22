@@ -1,10 +1,12 @@
 const express = require('express');
 const bodyParser = require('body-parser');
 const { google } = require('googleapis');
+const cors = require('cors');   // ✅ enable cross-origin requests
 
 const app = express();
 const port = process.env.PORT || 10000;
 
+app.use(cors());                // ✅ allow Vapi dashboard & browser requests
 app.use(bodyParser.json());
 
 // ========================
@@ -16,12 +18,13 @@ const oAuth2Client = new google.auth.OAuth2(
   process.env.REDIRECT_URI
 );
 
+// Load tokens from env
 if (process.env.GOOGLE_TOKENS) {
   try {
     oAuth2Client.setCredentials(JSON.parse(process.env.GOOGLE_TOKENS));
-    console.log("Google tokens loaded from env.");
+    console.log("✅ Google tokens loaded from env.");
   } catch (err) {
-    console.error("Failed to parse GOOGLE_TOKENS:", err);
+    console.error("❌ Failed to parse GOOGLE_TOKENS:", err);
   }
 }
 
@@ -40,7 +43,7 @@ app.post('/events', async (req, res) => {
     console.log('--- RAW VAPI REQUEST ---');
     console.log(JSON.stringify(req.body, null, 2));
 
-    // Extract tool call
+    // Extract tool call from Vapi payload
     const toolCall = req.body?.message?.toolCallList?.[0];
     if (!toolCall) {
       return res.status(400).json({ error: 'Invalid Vapi payload' });
@@ -51,7 +54,7 @@ app.post('/events', async (req, res) => {
     console.log('--- EXTRACTED ARGUMENTS ---');
     console.log(args);
 
-    // Google Calendar API call
+    // Setup Google Calendar API
     const calendar = google.calendar({ version: 'v3', auth: oAuth2Client });
 
     const event = {
@@ -71,7 +74,7 @@ app.post('/events', async (req, res) => {
     console.log('--- GOOGLE CALENDAR RESPONSE ---');
     console.log(response.data);
 
-    // Send Vapi response
+    // Send response back to Vapi
     res.json({
       results: [
         {
@@ -82,7 +85,7 @@ app.post('/events', async (req, res) => {
     });
 
   } catch (err) {
-    console.error('Error handling /events:', err);
+    console.error('❌ Error handling /events:', err);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
