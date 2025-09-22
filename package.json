@@ -1,18 +1,20 @@
 {
-  "name": "calendar-proxy",
+  "name": "vapi-calendar-backend",
   "version": "1.0.0",
-  "description": "Proxy to create Google Calendar events (for VAPI)",
+  "description": "Proxy to create Google Calendar events (for Vapi function tool)",
   "main": "server.js",
+  "type": "commonjs",
   "scripts": {
     "start": "node server.js"
   },
+  "engines": {
+    "node": ">=18"
+  },
   "dependencies": {
     "cors": "^2.8.5",
-    "dotenv": "^16.0.0",
-    "express": "^4.18.2",
-    "googleapis": "^124.0.0"
-  },
-  "engines": {
-    "node": ">=16"
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "googleapis": "^131.0.0"
   }
 }
+
