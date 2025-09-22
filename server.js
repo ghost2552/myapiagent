@@ -19,18 +19,14 @@ function getOAuthClient() {
 
   const { client_id, client_secret, redirect_uris } = credentials.web;
 
-  return new google.auth.OAuth2(
-    client_id,
-    client_secret,
-    redirect_uris[0]
-  );
+  return new google.auth.OAuth2(client_id, client_secret, redirect_uris[0]);
 }
 
-// Store tokens in memory (later we can move to Redis/DB if needed)
+// Store tokens in memory (you could later persist to DB/Redis if needed)
 let oauthTokens = null;
 
 app.get("/", (req, res) => {
-  res.send("✅ Google Calendar API is running. Visit /authorize to connect.");
+  res.send("✅ Google Calendar API Backend is running!");
 });
 
 app.get("/authorize", (req, res) => {
@@ -56,7 +52,6 @@ app.get("/oauth2callback", async (req, res) => {
   }
 });
 
-// Create Calendar Event
 app.post("/events", async (req, res) => {
   try {
     if (!oauthTokens) {
@@ -72,9 +67,9 @@ app.post("/events", async (req, res) => {
       summary: req.body.summary,
       location: req.body.location,
       description: req.body.description,
-      start: { dateTime: req.body.start.dateTime },
-      end: { dateTime: req.body.end.dateTime },
-      attendees: req.body.attendees || [],
+      start: { dateTime: req.body.start },  // Wrap plain string into { dateTime }
+      end: { dateTime: req.body.end },      // Wrap plain string into { dateTime }
+      attendees: (req.body.attendees || []).map(email => ({ email })),
     };
 
     const result = await calendar.events.insert({
@@ -82,24 +77,10 @@ app.post("/events", async (req, res) => {
       resource: event,
     });
 
-    // ✅ Clean structured JSON response for Vapi
-    res.status(200).json({
-      success: true,
-      message: "Event created successfully",
-      eventId: result.data.id,
-      summary: result.data.summary,
-      htmlLink: result.data.htmlLink,
-      start: result.data.start,
-      end: result.data.end,
-    });
-
+    res.status(200).json(result.data);
   } catch (err) {
     console.error("Error creating event:", err);
-    res.status(500).json({
-      success: false,
-      message: "Error creating event",
-      error: err.message,
-    });
+    res.status(500).send("Error creating event");
   }
 });
 
