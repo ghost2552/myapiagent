@@ -1,90 +1,44 @@
 import express from "express";
+import bodyParser from "body-parser";
+import cors from "cors";
 import { google } from "googleapis";
-import dotenv from "dotenv";
-
-dotenv.config();
 
 const app = express();
-app.use(express.json());
 
-const SCOPES = ["https://www.googleapis.com/auth/calendar"];
+// ✅ Allow all origins for now (you can restrict later)
+app.use(cors());
+app.use(bodyParser.json());
 
-function getOAuthClient() {
-  let credentials;
-  if (process.env.GOOGLE_CREDENTIALS) {
-    credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS);
-  } else {
-    throw new Error("GOOGLE_CREDENTIALS not set in environment variables.");
-  }
+// Google Calendar setup...
+// (your existing code here)
 
-  const { client_id, client_secret, redirect_uris } = credentials.web;
-
-  return new google.auth.OAuth2(client_id, client_secret, redirect_uris[0]);
-}
-
-// Store tokens in memory (you could later persist to DB/Redis if needed)
-let oauthTokens = null;
-
-app.get("/", (req, res) => {
-  res.send("✅ Google Calendar API Backend is running!");
-});
-
-app.get("/authorize", (req, res) => {
-  const oAuth2Client = getOAuthClient();
-  const authUrl = oAuth2Client.generateAuthUrl({
-    access_type: "offline",
-    scope: SCOPES,
-  });
-  res.redirect(authUrl);
-});
-
-app.get("/oauth2callback", async (req, res) => {
-  try {
-    const oAuth2Client = getOAuthClient();
-    const { code } = req.query;
-    const { tokens } = await oAuth2Client.getToken(code);
-    oauthTokens = tokens;
-    oAuth2Client.setCredentials(tokens);
-    res.send("✅ Authorization successful! You can now use the API.");
-  } catch (err) {
-    console.error("OAuth callback error:", err);
-    res.status(500).send("Error during authorization.");
-  }
-});
-
+// Example POST endpoint
 app.post("/events", async (req, res) => {
   try {
-    if (!oauthTokens) {
-      return res.status(400).send("❌ Not authorized yet. Visit /authorize first.");
-    }
-
-    const oAuth2Client = getOAuthClient();
-    oAuth2Client.setCredentials(oauthTokens);
-
-    const calendar = google.calendar({ version: "v3", auth: oAuth2Client });
+    const { summary, description, location, start, end, attendees } = req.body;
 
     const event = {
-      summary: req.body.summary,
-      location: req.body.location,
-      description: req.body.description,
-      start: { dateTime: req.body.start },  // Wrap plain string into { dateTime }
-      end: { dateTime: req.body.end },      // Wrap plain string into { dateTime }
-      attendees: (req.body.attendees || []).map(email => ({ email })),
+      summary,
+      description,
+      location,
+      start: { dateTime: start, timeZone: "UTC" },
+      end: { dateTime: end, timeZone: "UTC" },
+      attendees: attendees ? attendees.map(email => ({ email })) : [],
     };
 
-    const result = await calendar.events.insert({
+    const calendar = google.calendar({ version: "v3", auth: oauth2Client });
+    const response = await calendar.events.insert({
       calendarId: "primary",
       resource: event,
     });
 
-    res.status(200).json(result.data);
-  } catch (err) {
-    console.error("Error creating event:", err);
-    res.status(500).send("Error creating event");
+    res.status(200).json({ success: true, event: response.data });
+  } catch (error) {
+    console.error("Error creating event:", error);
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-});
+// Start server
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
