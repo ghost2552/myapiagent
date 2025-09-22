@@ -1,6 +1,6 @@
 // server.js (CommonJS)
-// Drop this in your project root and run with: node server.js
-// Make sure you set env vars on Render: GOOGLE_CREDENTIALS, REDIRECT_URI, VAPI_KEY (optional), GOOGLE_CALENDAR_ID (optional)
+// Run with: node server.js
+// Set env vars on Render: GOOGLE_CREDENTIALS, REDIRECT_URI, VAPI_KEY (optional), GOOGLE_CALENDAR_ID (optional), TOKENS_FILE (optional), GOOGLE_TOKENS (optional)
 
 const express = require('express');
 const { google } = require('googleapis');
@@ -8,6 +8,7 @@ const dotenv = require('dotenv');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 dotenv.config();
 
@@ -21,20 +22,21 @@ app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: true, limit: '5mb' }));
 app.use(express.text({ type: '*/*', limit: '5mb' }));
 
-// Tiny request logger (very useful on Render)
+// Timing + tiny request logger (super helpful on Render)
 app.use((req, _res, next) => {
+  req._t0 = Date.now();
   console.log(`> ${req.method} ${req.url} ip=${req.ip} ua=${req.get('user-agent') || ''}`);
   next();
 });
 
-// Health + ping for quick connectivity checks
+// Health + ping for connectivity checks
 app.get('/healthz', (_req, res) => res.status(200).json({ ok: true, time: new Date().toISOString() }));
 app.post('/events/ping', (req, res) => {
-  console.log('Vapi reached /events/ping; header x-vapi-key =', req.get('x-vapi-key'));
+  console.log('Vapi reached /events/ping; x-vapi-key =', req.get('x-vapi-key'));
   res.status(200).json({ ok: true });
 });
 
-/** Safely get a parsed body even with weird Content-Types */
+/** Parse body safely even if Content-Type is weird */
 function getParsedBody(req) {
   const b = req.body;
   if (b && typeof b === 'object' && Object.keys(b).length > 0) return b;
@@ -56,7 +58,6 @@ function loadCredentials() {
       throw new Error('Invalid GOOGLE_CREDENTIALS JSON');
     }
   }
-
   const secretPath = process.env.GOOGLE_SECRET_PATH || '/etc/secrets/client_secret.json';
   if (fs.existsSync(secretPath)) {
     try { return JSON.parse(fs.readFileSync(secretPath, 'utf8')); }
@@ -65,7 +66,6 @@ function loadCredentials() {
       throw new Error('Invalid client secret file JSON');
     }
   }
-
   throw new Error('GOOGLE_CREDENTIALS not set and secret file not found');
 }
 
@@ -75,17 +75,15 @@ function createOAuthClient() {
   const client_id = cfg.client_id;
   const client_secret = cfg.client_secret;
   const redirect_uri = (cfg.redirect_uris && cfg.redirect_uris[0]) || process.env.REDIRECT_URI;
-
   if (!client_id || !client_secret || !redirect_uri) {
     throw new Error('Client ID/secret/redirect URI missing in credentials');
   }
-
   return new google.auth.OAuth2(client_id, client_secret, redirect_uri);
 }
 
-// Tokens: in-memory + env + optional file persistence
+// Tokens: in-memory + env + optional file
 let oauthTokens = null;
-const TOKENS_FILE = process.env.TOKENS_FILE || ''; // e.g. '/etc/secrets/google_tokens.json' or './tokens.json'
+const TOKENS_FILE = process.env.TOKENS_FILE || ''; // e.g. '/etc/secrets/google_tokens.json'
 const SCOPES = ['https://www.googleapis.com/auth/calendar.events'];
 const VAPI_KEY = process.env.VAPI_KEY || null;
 const DEFAULT_CALENDAR_ID = process.env.GOOGLE_CALENDAR_ID || 'primary';
@@ -110,16 +108,16 @@ function loadTokensIfPresent() {
 }
 
 function persistTokensIfPossible(tokens) {
-  if (TOKENS_FILE) {
-    try {
-      fs.mkdirSync(path.dirname(TOKENS_FILE), { recursive: true });
-      fs.writeFileSync(TOKENS_FILE, JSON.stringify(tokens, null, 2), 'utf8');
-      console.log('Persisted tokens to', TOKENS_FILE);
-    } catch (err) {
-      console.warn('Could not persist tokens to file:', err.message);
-    }
-  } else {
-    console.log('TOKENS_FILE not set; tokens remain in memory (or GOOGLE_TOKENS env).');
+  if (!TOKENS_FILE) {
+    console.log('TOKENS_FILE not set; tokens only in memory (and possibly GOOGLE_TOKENS env).');
+    return;
+  }
+  try {
+    fs.mkdirSync(path.dirname(TOKENS_FILE), { recursive: true });
+    fs.writeFileSync(TOKENS_FILE, JSON.stringify(tokens, null, 2), 'utf8');
+    console.log('Persisted tokens to', TOKENS_FILE);
+  } catch (err) {
+    console.warn('Could not persist tokens to file:', err.message);
   }
 }
 
@@ -240,6 +238,25 @@ app.post('/events', async (req, res) => {
       attendees = attendees.map(e => ({ email: e }));
     }
 
+    // Idempotency (prevent duplicates on retries)
+    const idemKey = crypto.createHash('sha256')
+      .update(JSON.stringify({
+        summary: body.summary,
+        start: body.start.dateTime,
+        end: body.end.dateTime,
+        attendees
+      }))
+      .digest('hex');
+    globalThis._seenCalls = globalThis._seenCalls || new Set();
+    if (globalThis._seenCalls.has(idemKey)) {
+      console.log('Duplicate tool call ignored via idempotency key');
+      return res.status(200).json({
+        success: true,
+        message: `Duplicate call ignored. Event was already handled.`
+      });
+    }
+    globalThis._seenCalls.add(idemKey);
+
     // Choose calendar (per-request, env default, or primary)
     const calendarId = body.calendarId || DEFAULT_CALENDAR_ID || 'primary';
 
@@ -252,16 +269,19 @@ app.post('/events', async (req, res) => {
       attendees,
     };
 
+    // Fast insert (sendUpdates:'none' while testing to reduce latency)
     const response = await calendar.events.insert({
       calendarId,
       resource: event,
-      sendUpdates: 'all',
+      sendUpdates: 'none', // change to 'all' later if you want email invites
     });
 
-    console.log('Created event id=', response.data?.id, 'calendarId=', calendarId);
+    const ms = Date.now() - req._t0;
+    console.log('Created event id=', response.data?.id, 'calendarId=', calendarId, 'in', ms, 'ms');
+
     return res.status(200).json({
       success: true,
-      message: 'Event created',
+      message: `Event created: ${body.summary} ${body.start.dateTime}–${body.end.dateTime}`,
       eventId: response.data?.id,
       event: response.data
     });
@@ -275,7 +295,7 @@ app.post('/events', async (req, res) => {
   }
 });
 
-// Bind to 0.0.0.0 and use the platform PORT
+// Bind to 0.0.0.0 and use platform PORT (Render)
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Server running on port ${PORT}`);
