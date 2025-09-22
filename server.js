@@ -1,10 +1,7 @@
 import express from "express";
-import cors from "cors";
 import bodyParser from "body-parser";
+import cors from "cors";
 import { google } from "googleapis";
-import dotenv from "dotenv";
-
-dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -12,7 +9,7 @@ const PORT = process.env.PORT || 10000;
 app.use(cors());
 app.use(bodyParser.json());
 
-// Google Auth
+// Google Auth setup
 const auth = new google.auth.GoogleAuth({
   credentials: JSON.parse(process.env.GOOGLE_CREDENTIALS),
   scopes: ["https://www.googleapis.com/auth/calendar"],
@@ -20,16 +17,12 @@ const auth = new google.auth.GoogleAuth({
 
 const calendar = google.calendar({ version: "v3", auth });
 
-// Protect API with VAPI key (optional but recommended)
-app.use((req, res, next) => {
-  const vapiKey = req.headers["x-vapi-key"];
-  if (process.env.VAPI_SECRET && vapiKey !== process.env.VAPI_SECRET) {
-    return res.status(403).json({ error: "Forbidden: Invalid API key" });
-  }
-  next();
+// Health check route
+app.get("/", (req, res) => {
+  res.send("🚀 Google Calendar API is running!");
 });
 
-// Create event endpoint
+// Create calendar event route
 app.post("/events", async (req, res) => {
   try {
     const { summary, description, location, start, end, attendees } = req.body;
@@ -42,9 +35,9 @@ app.post("/events", async (req, res) => {
       summary,
       description,
       location,
-      start: { dateTime: start },
-      end: { dateTime: end },
-      attendees: attendees?.map((email) => ({ email })) || [],
+      start: { dateTime: start, timeZone: "UTC" },
+      end: { dateTime: end, timeZone: "UTC" },
+      attendees: attendees ? attendees.map((email) => ({ email })) : [],
     };
 
     const response = await calendar.events.insert({
@@ -52,9 +45,12 @@ app.post("/events", async (req, res) => {
       resource: event,
     });
 
-    res.status(200).json(response.data);
+    res.json({
+      message: "✅ Event created successfully",
+      eventLink: response.data.htmlLink,
+    });
   } catch (error) {
-    console.error("Error creating event:", error);
+    console.error("❌ Error creating event:", error);
     res.status(500).json({ error: error.message });
   }
 });
