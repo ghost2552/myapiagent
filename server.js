@@ -1,52 +1,98 @@
-const express = require("express");
-const bodyParser = require("body-parser");
-const { google } = require("googleapis");
+const express = require('express');
+const bodyParser = require('body-parser');
+const { google } = require('googleapis');
+const cors = require('cors');   // ✅ enable cross-origin requests
 
 const app = express();
+const port = process.env.PORT || 10000;
+
+app.use(cors());                // ✅ allow Vapi dashboard & browser requests
 app.use(bodyParser.json());
 
-app.post("/events", async (req, res) => {
+// ========================
+// Google OAuth2 setup
+// ========================
+const oAuth2Client = new google.auth.OAuth2(
+  process.env.CLIENT_ID,
+  process.env.CLIENT_SECRET,
+  process.env.REDIRECT_URI
+);
+
+// Load tokens from env
+if (process.env.GOOGLE_TOKENS) {
   try {
-    console.log("--- RAW VAPI REQUEST ---");
-    console.log(req.body); // log full body from Vapi
+    oAuth2Client.setCredentials(JSON.parse(process.env.GOOGLE_TOKENS));
+    console.log("✅ Google tokens loaded from env.");
+  } catch (err) {
+    console.error("❌ Failed to parse GOOGLE_TOKENS:", err);
+  }
+}
 
-    const { summary, start, end, description, location, attendees } = req.body;
+// ========================
+// Root health check
+// ========================
+app.get('/', (req, res) => {
+  res.send('✅ API server is running');
+});
 
-    if (!summary || !start || !end) {
-      return res.status(400).json({ error: "Missing required fields: summary, start, end" });
+// ========================
+// Events endpoint for Vapi
+// ========================
+app.post('/events', async (req, res) => {
+  try {
+    console.log('--- RAW VAPI REQUEST ---');
+    console.log(JSON.stringify(req.body, null, 2));
+
+    // Extract tool call from Vapi payload
+    const toolCall = req.body?.message?.toolCallList?.[0];
+    if (!toolCall) {
+      return res.status(400).json({ error: 'Invalid Vapi payload' });
     }
 
-    // Google OAuth2 client setup (replace with your tokens)
-    const oAuth2Client = new google.auth.OAuth2();
-    oAuth2Client.setCredentials({
-      access_token: process.env.ACCESS_TOKEN,
-      refresh_token: process.env.REFRESH_TOKEN,
-    });
+    const { id: toolCallId, arguments: args } = toolCall;
 
-    const calendar = google.calendar({ version: "v3", auth: oAuth2Client });
+    console.log('--- EXTRACTED ARGUMENTS ---');
+    console.log(args);
+
+    // Setup Google Calendar API
+    const calendar = google.calendar({ version: 'v3', auth: oAuth2Client });
 
     const event = {
-      summary,
-      location,
-      description,
-      start: { dateTime: start, timeZone: "UTC" },
-      end: { dateTime: end, timeZone: "UTC" },
-      attendees: attendees ? attendees.map(email => ({ email })) : [],
+      summary: args.summary,
+      description: args.description || '',
+      location: args.location || '',
+      start: { dateTime: args.start },
+      end: { dateTime: args.end },
+      attendees: (args.attendees || []).map(email => ({ email })),
     };
 
     const response = await calendar.events.insert({
-      calendarId: "primary",
+      calendarId: 'primary',
       resource: event,
     });
 
-    res.json({ message: "Event created", event: response.data });
+    console.log('--- GOOGLE CALENDAR RESPONSE ---');
+    console.log(response.data);
+
+    // Send response back to Vapi
+    res.json({
+      results: [
+        {
+          toolCallId,
+          result: `✅ Event created: ${args.summary} (${args.start} → ${args.end})`
+        }
+      ]
+    });
+
   } catch (err) {
-    console.error("Error creating event:", err);
-    res.status(500).json({ error: err.message });
+    console.error('❌ Error handling /events:', err);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 });
 
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+// ========================
+// Start server
+// ========================
+app.listen(port, () => {
+  console.log(`🚀 Server running on port ${port}`);
 });
