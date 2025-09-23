@@ -5,7 +5,7 @@ const { google } = require("googleapis");
 const app = express();
 app.use(bodyParser.json());
 
-// your Vapi secret
+// Vapi secret (must match the one you set in Vapi tool)
 const VAPI_SECRET = process.env.VAPI_SECRET || "change_this_secret";
 
 // Google Calendar setup
@@ -18,12 +18,12 @@ const auth = new google.auth.JWT(
 );
 google.options({ auth });
 
-// test route
+// Root test route
 app.get("/", (req, res) => {
   res.send("✅ Vapi Google Calendar Agent is running.");
 });
 
-// Vapi → Google Calendar
+// Vapi → Google Calendar route
 app.post("/events", async (req, res) => {
   try {
     const apiKey = req.headers["x-vapi-key"];
@@ -60,11 +60,12 @@ app.post("/events", async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("Error inserting event:", err);
+    console.error("❌ Error inserting event:", err);
     res.status(500).json({ error: "Failed to create event" });
   }
 });
 
+// Start server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
