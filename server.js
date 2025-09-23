@@ -1,6 +1,6 @@
-import express from "express";
-import bodyParser from "body-parser";
-import { google } from "googleapis";
+const express = require("express");
+const bodyParser = require("body-parser");
+const { google } = require("googleapis");
 
 const app = express();
 app.use(bodyParser.json());
@@ -25,7 +25,6 @@ const auth = new google.auth.GoogleAuth({
 
 const calendar = google.calendar({ version: "v3", auth });
 
-// POST /events -> schedule on Google Calendar
 app.post("/events", async (req, res) => {
   console.log("--- RAW VAPI REQUEST ---");
   console.log(JSON.stringify(req.body, null, 2));
