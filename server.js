@@ -1,98 +1,63 @@
-const express = require('express');
-const bodyParser = require('body-parser');
-const { google } = require('googleapis');
-const cors = require('cors');   // ✅ enable cross-origin requests
+import express from "express";
+import bodyParser from "body-parser";
+import { google } from "googleapis";
 
 const app = express();
-const port = process.env.PORT || 10000;
-
-app.use(cors());                // ✅ allow Vapi dashboard & browser requests
 app.use(bodyParser.json());
 
-// ========================
-// Google OAuth2 setup
-// ========================
-const oAuth2Client = new google.auth.OAuth2(
-  process.env.CLIENT_ID,
-  process.env.CLIENT_SECRET,
-  process.env.REDIRECT_URI
+// Setup Google OAuth2 client (make sure your tokens are loaded correctly)
+const oauth2Client = new google.auth.OAuth2(
+  process.env.GOOGLE_CLIENT_ID,
+  process.env.GOOGLE_CLIENT_SECRET,
+  process.env.GOOGLE_REDIRECT_URI
 );
 
-// Load tokens from env
-if (process.env.GOOGLE_TOKENS) {
-  try {
-    oAuth2Client.setCredentials(JSON.parse(process.env.GOOGLE_TOKENS));
-    console.log("✅ Google tokens loaded from env.");
-  } catch (err) {
-    console.error("❌ Failed to parse GOOGLE_TOKENS:", err);
-  }
-}
-
-// ========================
-// Root health check
-// ========================
-app.get('/', (req, res) => {
-  res.send('✅ API server is running');
+oauth2Client.setCredentials({
+  access_token: process.env.GOOGLE_ACCESS_TOKEN,
+  refresh_token: process.env.GOOGLE_REFRESH_TOKEN,
+  scope: "https://www.googleapis.com/auth/calendar.events",
+  token_type: "Bearer",
+  expiry_date: process.env.GOOGLE_EXPIRY_DATE,
 });
 
-// ========================
-// Events endpoint for Vapi
-// ========================
-app.post('/events', async (req, res) => {
+// POST /events endpoint for Vapi
+app.post("/events", async (req, res) => {
+  console.log("--- RAW VAPI REQUEST ---");
+  console.log(req.body);
+
+  // ✅ Vapi sends params inside `arguments`
+  const args = req.body.arguments || {};
+  const { summary, start, end, description, location, attendees } = args;
+
+  if (!summary || !start || !end) {
+    return res.status(400).json({ error: "Missing required fields" });
+  }
+
   try {
-    console.log('--- RAW VAPI REQUEST ---');
-    console.log(JSON.stringify(req.body, null, 2));
-
-    // Extract tool call from Vapi payload
-    const toolCall = req.body?.message?.toolCallList?.[0];
-    if (!toolCall) {
-      return res.status(400).json({ error: 'Invalid Vapi payload' });
-    }
-
-    const { id: toolCallId, arguments: args } = toolCall;
-
-    console.log('--- EXTRACTED ARGUMENTS ---');
-    console.log(args);
-
-    // Setup Google Calendar API
-    const calendar = google.calendar({ version: 'v3', auth: oAuth2Client });
-
     const event = {
-      summary: args.summary,
-      description: args.description || '',
-      location: args.location || '',
-      start: { dateTime: args.start },
-      end: { dateTime: args.end },
-      attendees: (args.attendees || []).map(email => ({ email })),
+      summary,
+      location,
+      description,
+      start: { dateTime: start },
+      end: { dateTime: end },
+      attendees: attendees?.map(email => ({ email })) || []
     };
 
-    const response = await calendar.events.insert({
-      calendarId: 'primary',
+    const calendar = google.calendar({ version: "v3", auth: oauth2Client });
+    const result = await calendar.events.insert({
+      calendarId: "primary",
       resource: event,
     });
 
-    console.log('--- GOOGLE CALENDAR RESPONSE ---');
-    console.log(response.data);
-
-    // Send response back to Vapi
-    res.json({
-      results: [
-        {
-          toolCallId,
-          result: `✅ Event created: ${args.summary} (${args.start} → ${args.end})`
-        }
-      ]
-    });
-
+    return res.json({ success: true, event: result.data });
   } catch (err) {
-    console.error('❌ Error handling /events:', err);
-    res.status(500).json({ error: 'Internal Server Error' });
+    console.error("Error creating event:", err);
+    return res.status(500).json({ error: "Failed to create event" });
   }
 });
 
-// ========================
 // Start server
-// ========================
-app.listen(port, () => {
-  console.log(`🚀 Server running on port ${port}`);
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
 });
