@@ -1,6 +1,6 @@
-import express from "express";
-import bodyParser from "body-parser";
-import { google } from "googleapis";
+const express = require("express");
+const bodyParser = require("body-parser");
+const { google } = require("googleapis");
 
 const app = express();
 app.use(bodyParser.json());
@@ -18,7 +18,7 @@ const auth = new google.auth.JWT(
 );
 google.options({ auth });
 
-// test route (optional, just to check server is alive)
+// test route
 app.get("/", (req, res) => {
   res.send("✅ Vapi Google Calendar Agent is running.");
 });
@@ -65,7 +65,6 @@ app.post("/events", async (req, res) => {
   }
 });
 
-// start server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
