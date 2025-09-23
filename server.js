@@ -1,37 +1,42 @@
-// server.js
-const express = require("express");
-const bodyParser = require("body-parser");
-const { google } = require("googleapis");
+import express from "express";
+import bodyParser from "body-parser";
+import { google } from "googleapis";
 
 const app = express();
-const PORT = process.env.PORT || 10000;
-
-// parse incoming json
 app.use(bodyParser.json());
 
-// ==================== GOOGLE AUTH ====================
-const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS || "{}");
-const tokens = JSON.parse(process.env.GOOGLE_TOKENS || "{}");
+// your Vapi secret
+const VAPI_SECRET = process.env.VAPI_SECRET || "change_this_secret";
 
-const { client_id, client_secret, redirect_uris } = credentials.installed || credentials.web || {};
-const oAuth2Client = new google.auth.OAuth2(client_id, client_secret, redirect_uris?.[0]);
+// Google Calendar setup
+const calendar = google.calendar({ version: "v3" });
+const auth = new google.auth.JWT(
+  process.env.GOOGLE_CLIENT_EMAIL,
+  null,
+  process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, "\n"),
+  ["https://www.googleapis.com/auth/calendar"]
+);
+google.options({ auth });
 
-if (tokens.refresh_token) {
-  oAuth2Client.setCredentials(tokens);
-}
+// test route (optional, just to check server is alive)
+app.get("/", (req, res) => {
+  res.send("✅ Vapi Google Calendar Agent is running.");
+});
 
-const calendar = google.calendar({ version: "v3", auth: oAuth2Client });
-
-// ==================== VAPI ENDPOINT ====================
+// Vapi → Google Calendar
 app.post("/events", async (req, res) => {
-  console.log("--- RAW VAPI REQUEST ---");
-  console.log(JSON.stringify(req.body, null, 2));
-
   try {
-    const args = req.body.arguments || {};
+    const apiKey = req.headers["x-vapi-key"];
+    if (apiKey !== VAPI_SECRET) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
 
-    if (!args.summary || !args.start || !args.end) {
-      return res.status(400).json({ error: "Missing required fields: summary, start, end" });
+    console.log("--- RAW VAPI REQUEST ---");
+    console.log(req.body);
+
+    const { arguments: args } = req.body;
+    if (!args || !args.start || !args.end || !args.summary) {
+      return res.status(400).json({ error: "Missing required fields" });
     }
 
     const event = {
@@ -40,31 +45,28 @@ app.post("/events", async (req, res) => {
       location: args.location || "",
       start: { dateTime: args.start },
       end: { dateTime: args.end },
-      attendees: (args.attendees || []).map((email) => ({ email })),
+      attendees: (args.attendees || []).map(email => ({ email })),
     };
 
     const response = await calendar.events.insert({
       calendarId: "primary",
-      resource: event,
+      requestBody: event,
     });
 
-    console.log("✅ Event created:", response.data);
-
-    return res.json({
-      results: [
-        {
-          toolCallId: req.body.toolCallId || "manual-test",
-          result: `Event created: ${response.data.htmlLink}`,
-        },
-      ],
+    res.json({
+      results: {
+        toolCallId: req.body.toolCallId || "manual-test",
+        result: { eventId: response.data.id },
+      },
     });
   } catch (err) {
-    console.error("❌ Error creating event:", err.message);
-    return res.status(500).json({ error: err.message });
+    console.error("Error inserting event:", err);
+    res.status(500).json({ error: "Failed to create event" });
   }
 });
 
-// ==================== START SERVER ====================
+// start server
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
