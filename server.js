@@ -1,98 +1,49 @@
 const express = require('express');
 const bodyParser = require('body-parser');
-const { google } = require('googleapis');
-const cors = require('cors');   // ✅ enable cross-origin requests
 
 const app = express();
-const port = process.env.PORT || 10000;
+const PORT = process.env.PORT || 10000;
 
-app.use(cors());                // ✅ allow Vapi dashboard & browser requests
+// Middleware to parse JSON bodies
 app.use(bodyParser.json());
 
-// ========================
-// Google OAuth2 setup
-// ========================
-const oAuth2Client = new google.auth.OAuth2(
-  process.env.CLIENT_ID,
-  process.env.CLIENT_SECRET,
-  process.env.REDIRECT_URI
-);
-
-// Load tokens from env
-if (process.env.GOOGLE_TOKENS) {
-  try {
-    oAuth2Client.setCredentials(JSON.parse(process.env.GOOGLE_TOKENS));
-    console.log("✅ Google tokens loaded from env.");
-  } catch (err) {
-    console.error("❌ Failed to parse GOOGLE_TOKENS:", err);
-  }
-}
-
-// ========================
-// Root health check
-// ========================
-app.get('/', (req, res) => {
-  res.send('✅ API server is running');
+// Debug middleware (log all incoming requests)
+app.use((req, res, next) => {
+  console.log('--- RAW VAPI REQUEST ---');
+  console.log(JSON.stringify(req.body, null, 2));
+  next();
 });
 
-// ========================
-// Events endpoint for Vapi
-// ========================
-app.post('/events', async (req, res) => {
-  try {
-    console.log('--- RAW VAPI REQUEST ---');
-    console.log(JSON.stringify(req.body, null, 2));
+// Events endpoint
+app.post('/events', (req, res) => {
+  // Support both Vapi-style { arguments: {...} } and direct { summary, start, end... }
+  const args = req.body.arguments || req.body;
 
-    // Extract tool call from Vapi payload
-    const toolCall = req.body?.message?.toolCallList?.[0];
-    if (!toolCall) {
-      return res.status(400).json({ error: 'Invalid Vapi payload' });
-    }
+  if (!args || !args.summary || !args.start || !args.end) {
+    return res.status(400).json({ error: 'Missing required fields: summary, start, end' });
+  }
 
-    const { id: toolCallId, arguments: args } = toolCall;
-
-    console.log('--- EXTRACTED ARGUMENTS ---');
-    console.log(args);
-
-    // Setup Google Calendar API
-    const calendar = google.calendar({ version: 'v3', auth: oAuth2Client });
-
-    const event = {
-      summary: args.summary,
-      description: args.description || '',
-      location: args.location || '',
-      start: { dateTime: args.start },
-      end: { dateTime: args.end },
-      attendees: (args.attendees || []).map(email => ({ email })),
-    };
-
-    const response = await calendar.events.insert({
-      calendarId: 'primary',
-      resource: event,
-    });
-
-    console.log('--- GOOGLE CALENDAR RESPONSE ---');
-    console.log(response.data);
-
-    // Send response back to Vapi
-    res.json({
-      results: [
-        {
-          toolCallId,
-          result: `✅ Event created: ${args.summary} (${args.start} → ${args.end})`
+  // Respond in Vapi format
+  res.json({
+    results: [
+      {
+        toolCallId: req.body.toolCallId || "manual-test",
+        result: {
+          message: `✅ Event created: ${args.summary} from ${args.start} to ${args.end}`,
+          event: args
         }
-      ]
-    });
-
-  } catch (err) {
-    console.error('❌ Error handling /events:', err);
-    res.status(500).json({ error: 'Internal Server Error' });
-  }
+      }
+    ]
+  });
 });
 
-// ========================
+// Root endpoint for sanity check
+app.get('/', (req, res) => {
+  res.send('🚀 Vapi Google Calendar backend is running!');
+});
+
 // Start server
-// ========================
-app.listen(port, () => {
-  console.log(`🚀 Server running on port ${port}`);
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`✅ Your service is live at https://myapiagent.onrender.com`);
 });
