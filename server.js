@@ -5,7 +5,7 @@ import { google } from "googleapis";
 const app = express();
 app.use(bodyParser.json());
 
-// Setup Google OAuth2 client (make sure your tokens are loaded correctly)
+// Setup Google OAuth2 client
 const oauth2Client = new google.auth.OAuth2(
   process.env.GOOGLE_CLIENT_ID,
   process.env.GOOGLE_CLIENT_SECRET,
@@ -22,14 +22,20 @@ oauth2Client.setCredentials({
 
 // POST /events endpoint for Vapi
 app.post("/events", async (req, res) => {
-  console.log("--- RAW VAPI REQUEST ---");
-  console.log(req.body);
+  console.log("========== RAW VAPI REQUEST ==========");
+  console.log(JSON.stringify(req.body, null, 2)); // pretty print full request
+  console.log("======================================");
 
-  // ✅ Vapi sends params inside `arguments`
+  // ✅ Log only arguments
+  console.log(">> Vapi Arguments:");
+  console.log(req.body.arguments || {});
+  console.log("======================================");
+
   const args = req.body.arguments || {};
   const { summary, start, end, description, location, attendees } = args;
 
   if (!summary || !start || !end) {
+    console.warn("⚠️ Missing required fields:", { summary, start, end });
     return res.status(400).json({ error: "Missing required fields" });
   }
 
@@ -49,9 +55,11 @@ app.post("/events", async (req, res) => {
       resource: event,
     });
 
+    console.log("✅ Event created:", result.data.id);
+
     return res.json({ success: true, event: result.data });
   } catch (err) {
-    console.error("Error creating event:", err);
+    console.error("❌ Error creating event:", err.response?.data || err.message);
     return res.status(500).json({ error: "Failed to create event" });
   }
 });
